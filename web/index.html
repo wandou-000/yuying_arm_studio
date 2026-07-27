@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>驭影·桌面拍摄机械臂</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js",
+      "three/addons/loaders/STLLoader.js": "./vendor/STLLoader.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🦾</span>
+      <div>
+        <div class="title">驭影·桌面拍摄机械臂</div>
+        <div class="subtitle">六轴机械臂 · 串口 · URDF 可视化 · 示教 · 轨迹规划</div>
+      </div>
+    </div>
+    <div class="conn-group">
+      <label>端口 <select id="portSelect"></select></label>
+      <button id="btnRefresh" class="btn ghost" title="刷新串口列表">⟳</button>
+      <label>波特率
+        <select id="baudSelect">
+          <option>9600</option><option>19200</option><option>38400</option><option>57600</option>
+          <option>115200</option><option>230400</option><option>460800</option><option>921600</option>
+          <option selected>1000000</option><option>2000000</option>
+        </select>
+      </label>
+      <button id="btnConnect" class="btn primary">连接</button>
+      <button id="btnDisconnect" class="btn">断开</button>
+      <span id="connDot" class="dot off"></span>
+      <span id="connText" class="conn-text">未连接</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左侧控制面板 -->
+    <aside class="panel left">
+      <section class="card">
+        <h3>电机控制</h3>
+        <div class="btn-row">
+          <button id="btnEnable" class="btn ok">使能</button>
+          <button id="btnDisable" class="btn warn">失能</button>
+        </div>
+        <div class="btn-row">
+          <button id="btnClear" class="btn">清除急停</button>
+          <button id="btnEstop" class="btn danger big">急停</button>
+        </div>
+        <div class="btn-row">
+          <button id="btnHome" class="btn block">↩ 回零点 (六轴归零)</button>
+        </div>
+        <div class="status-line">
+          <span>急停: <b id="estopState" class="tag">-</b></span>
+          <span>运动: <b id="movingState" class="tag">-</b></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>示教 &amp; 拖动记录</h3>
+        <button id="btnTeach" class="btn block toggle">进入示教模式</button>
+        <div class="hint">示教模式下电机零力矩, 可用手自由拖动机械臂。</div>
+        <div class="btn-row"><button id="btnRecord" class="btn block toggle">开始记录</button></div>
+        <div class="rec-info">
+          <span class="rec-badge" id="recBadge">● 未记录</span>
+          <span>采样点: <b id="recCount">0</b></span>
+        </div>
+        <hr/>
+        <div class="form-row">
+          <label>去毛刺/突变 (Hampel)
+            <input type="range" id="medianWin" min="1" max="21" step="2" value="7" />
+            <span id="medianWinVal" class="val">7</span>
+          </label>
+          <label>曲线平滑 (S-G)
+            <input type="range" id="smoothWin" min="1" max="51" step="2" value="21" />
+            <span id="smoothWinVal" class="val">21</span>
+          </label>
+        </div>
+        <button id="btnSmooth" class="btn block accent">平滑处理</button>
+        <hr/>
+        <div class="form-row">
+          <label>复现速度 ×<span id="speedVal" class="val">1.0</span>
+            <input type="range" id="speedFactor" min="0.1" max="3" step="0.1" value="1" />
+          </label>
+        </div>
+        <div class="btn-row">
+          <button id="btnReplay" class="btn block primary">▶ 一键 Display</button>
+          <button id="btnReplayStop" class="btn">■ 停止</button>
+        </div>
+        <div class="progress"><div id="replayBar" class="bar"></div></div>
+        <button id="btnClearTraj" class="btn block ghost small">清除记录轨迹</button>
+      </section>
+
+      <section class="card">
+        <h3>关节实时状态</h3>
+        <div id="jointTable" class="joint-table"></div>
+      </section>
+
+      <section class="card">
+        <h3>单轴点动</h3>
+        <div id="jogPanel" class="jog-panel"></div>
+      </section>
+
+      <section class="card">
+        <h3>视图</h3>
+        <div class="btn-row wrap">
+          <button id="btnFit" class="btn small">适配视角</button>
+          <button id="btnSetZero" class="btn small" title="将当前姿态设为可视化零点">校准零点</button>
+          <label class="chk"><input type="checkbox" id="chkTraj" checked/> 记录轨迹</label>
+          <label class="chk"><input type="checkbox" id="chkRaw"/> 原始</label>
+          <label class="chk"><input type="checkbox" id="chkPlan" checked/> 规划轨迹</label>
+          <label class="chk"><input type="checkbox" id="chkGrid" checked/> 网格</label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>设备日志 (串口 UART0)</h3>
+        <pre id="deviceLog" class="devlog"></pre>
+        <label class="chk"><input type="checkbox" id="chkAutoscroll" checked/> 自动滚动</label>
+      </section>
+    </aside>
+
+    <!-- 中上: 末端位姿 + 笛卡尔遥控 -->
+    <section class="cart">
+      <div class="card pose-card">
+        <h3>末端位姿 (相对原点)</h3>
+        <div class="pose-grid">
+          <span>X <b id="eeX">0.0</b> mm</span>
+          <span>Y <b id="eeY">0.0</b> mm</span>
+          <span>Z <b id="eeZ">0.0</b> mm</span>
+          <span>R <b id="eeR">0.0</b>°</span>
+          <span>P <b id="eeP">0.0</b>°</span>
+          <span>Yaw <b id="eeYaw">0.0</b>°</span>
+        </div>
+        <div class="hint">六轴均为 0 时末端即原点 (0,0,0,0,0,0)。</div>
+      </div>
+
+      <div class="card remote-card">
+        <h3>笛卡尔遥控 (末端平移 / 姿态)</h3>
+        <div class="remote">
+          <div class="remote-col">
+            <div class="rc-title">平移</div>
+            <div class="pad">
+              <button class="btn jogbtn" id="btnJogXp">X+</button>
+              <button class="btn jogbtn" id="btnJogXn">X−</button>
+              <button class="btn jogbtn" id="btnJogYp">Y+</button>
+              <button class="btn jogbtn" id="btnJogYn">Y−</button>
+              <button class="btn jogbtn" id="btnJogZp">Z+</button>
+              <button class="btn jogbtn" id="btnJogZn">Z−</button>
+            </div>
+            <label class="steplbl">步长 <input type="number" id="posStep" value="5" min="0.1" step="0.5" /> mm</label>
+          </div>
+          <div class="remote-col">
+            <div class="rc-title">姿态</div>
+            <div class="pad">
+              <button class="btn jogbtn" id="btnJogRp">R+</button>
+              <button class="btn jogbtn" id="btnJogRn">R−</button>
+              <button class="btn jogbtn" id="btnJogPp">P+</button>
+              <button class="btn jogbtn" id="btnJogPn">P−</button>
+              <button class="btn jogbtn" id="btnJogWp">Yaw+</button>
+              <button class="btn jogbtn" id="btnJogWn">Yaw−</button>
+            </div>
+            <label class="steplbl">步长 <input type="number" id="rotStep" value="3" min="0.1" step="0.5" /> °</label>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="btnGoOrigin" class="btn small">回到末端原点</button>
+          <label class="chk"><input type="checkbox" id="chkSendHw" checked/> 同步发送到机械臂</label>
+        </div>
+        <div class="hint" id="ikHint">基于逆运动学(IK)解算关节角; 不可达/奇异时会提示。</div>
+      </div>
+
+      <div class="card view-card">
+        <div id="canvasHolder"></div>
+        <div id="loadingOverlay" class="overlay">正在加载 URDF 模型…</div>
+        <div class="vp-hud">
+          <span>末端 XYZ: <b id="eePos">-, -, -</b> m</span>
+          <span id="lastMsg" class="last-msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 下方: 轨迹规划 -->
+    <section class="planner card">
+      <div class="planner-head">
+        <h3>轨迹规划</h3>
+        <div class="ph-btns">
+          <button id="btnTjAdd" class="btn small">＋新增</button>
+          <button id="btnTjModify" class="btn small">✎修正</button>
+          <button id="btnTjInsert" class="btn small">⤵插入</button>
+          <button id="btnTjUp" class="btn small">↑上移</button>
+          <button id="btnTjDown" class="btn small">↓下移</button>
+          <button id="btnTjDel" class="btn small">🗑删除</button>
+          <button id="btnTjUndo" class="btn small">↶撤销</button>
+          <button id="btnTjRedo" class="btn small">↷重做</button>
+          <button id="btnTjSave" class="btn small">💾保存</button>
+          <button id="btnTjLoad" class="btn small">📂载入</button>
+          <input type="file" id="tjFile" accept="application/json" style="display:none" />
+        </div>
+      </div>
+      <div class="planner-body">
+        <div class="planner-side">
+          <button id="btnTjTryLine" class="btn small block">试行直线</button>
+          <button id="btnTjTryCurve" class="btn small block">试行曲线</button>
+          <hr/>
+          <label>速度mm/s<input type="number" id="defSpeed" value="100" min="1" max="1000" /></label>
+          <label>顺滑<input type="number" id="defSmooth" value="9" min="0" max="20" /></label>
+          <label>延迟<input type="number" id="defDelay" value="0" min="0" step="50" />ms</label>
+          <hr/>
+          <button id="btnTjAuto" class="btn ok block">▶ 自动运行</button>
+          <button id="btnTjStop" class="btn danger block">■ 停止</button>
+          <div class="progress"><div id="planBar" class="bar"></div></div>
+          <div class="hint" id="planMsg"></div>
+        </div>
+        <div class="planner-table-wrap">
+          <div class="tj-head">
+            <span>#</span><span>名称</span><span>类型</span><span>速度mm/s</span><span>顺滑</span><span>延迟ms</span><span></span>
+          </div>
+          <div id="trajTable" class="tj-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

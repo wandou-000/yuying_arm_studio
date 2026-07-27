@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 运行产物 / 本地数据
+plan_dumps/
+*.bak
+*.log
+
+# 编辑器 / 系统
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地模型资源 (URDF / STL 不随仓库分发, 见 README)
+assets/
+*.STL
+*.stl

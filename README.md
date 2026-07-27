@@ -1,13 +1,14 @@
-# Arm Teach Studio
+# 驭影 · Yuying Arm Studio
 
 [简体中文](README.zh-CN.md) · English
 
-Browser-based teaching pendant and trajectory studio for a 6-axis serial robot arm driven by an
-ESP32 controller over a UART text protocol.
+Browser-based teaching pendant and trajectory studio for **Yuying**, a 6-axis desktop camera arm
+driven by an ESP32 controller over a UART text protocol.
 
 Drag the arm by hand, record the motion, denoise it, and play it back at adjustable speed — or
 build a waypoint path in the 3D view and let a jerk-limited S-curve planner drive it through
-inverse kinematics.
+inverse kinematics. The motion profile is tuned for camera work: smooth starts, crisp stops, and
+no visible jerk through corners.
 
 No Flask, no Qt, no build step. The backend is Python standard library + `pyserial` + `numpy`;
 the frontend is plain ES modules with a vendored copy of three.js, so it runs fully offline.
@@ -15,19 +16,28 @@ the frontend is plain ES modules with a vendored copy of three.js, so it runs fu
 > **This repository does not ship a robot model.** You must supply your own URDF + STL mesh
 > directory. See [Robot model](#robot-model).
 
+![Yuying Arm Studio UI](docs/screenshot.png)
+
 ## Features
 
 - **Live pose** — 3D visualisation of the real arm at ~20 Hz via Server-Sent Events, plus a
   per-axis table of position / velocity / current / torque / temperature / online state.
 - **Drag teaching** — put the motors into zero-torque mode, move the arm by hand, record the
-  joint stream, then median-filter (spike removal) and moving-average (smoothing) it.
+  joint stream, then clean it up: angle unwrapping → uniform resampling → Hampel filter
+  (median + MAD outlier rejection, removes hand tremor and jumps) → Savitzky-Golay smoothing
+  (local least-squares polynomial fit, which tracks the curve better than a moving average).
 - **One-click replay** — replay the smoothed trajectory at 0.1×–3.0× with a progress bar and a
   stop button.
 - **Waypoint planner** — line and Catmull-Rom curve waypoints solved through IK, with a
   closed-form seven-segment asymmetric S-curve velocity profile (continuous acceleration,
   bounded jerk) and junction-deviation cornering limits.
-- **Jogging & calibration** — per-axis sliders, a zero-point calibration for URDF/motor offset,
-  and per-axis sign flipping.
+- **Cartesian jogging** — nudge the tool along X/Y/Z or rotate R/P/Yaw by a configurable step,
+  solved through IK and optionally streamed straight to the arm; unreachable or singular poses
+  are flagged.
+- **Jogging & calibration** — per-axis sliders, a homing button, a zero-point calibration for
+  URDF/motor offset, and per-axis sign flipping.
+- **Save / load paths** — waypoint sequences export to and import from JSON, with undo/redo and
+  a dry-run (line / curve) preview in the 3D view before touching hardware.
 - **Safety** — an always-available E-stop button; enable/disable map to firmware `CLEAR`/`ESTOP`.
 - **Offline analysis** — `analyze_plan.py` inspects an exported plan dump and reports Cartesian
   vs. joint-space velocity ripple, per-axis peak velocity/acceleration, and optional CSV export.
@@ -101,7 +111,7 @@ Open the printed URL in your browser.
 3. **Teach** — *Enter teach mode* sends `ARM,TEACH,1` and drops the motors to zero torque so the
    arm can be moved by hand. *Start recording* streams joint angles into the backend;
    *Stop recording* draws the raw TCP path in orange.
-4. **Smooth** — set the spike-removal and smoothing window sizes, then run smoothing; the result
+4. **Smooth** — set the Hampel (despike) and Savitzky-Golay window sizes, then smooth; the result
    is overlaid in cyan.
 5. **Replay** — choose a speed multiplier and play the smoothed trajectory back.
 6. **Plan** — add line/curve waypoints in the 3D view; the planner solves IK and generates a
@@ -133,7 +143,7 @@ Angles are centi-degrees; speeds are integer degrees per second.
 ## Layout
 
 ```
-arm_teach_studio/
+yuying_arm_studio/
 ├── server.py          # serial link, HTTP + SSE, recording, denoise, replay
 ├── analyze_plan.py    # offline plan-dump analysis
 ├── requirements.txt

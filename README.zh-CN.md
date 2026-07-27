@@ -43,6 +43,8 @@
 - 机械臂侧固件需实现 `$ARM,...*XX` 串口协议，见 [协议](#协议)
 
 ```bash
+git clone https://github.com/wandou-000/yuying_arm_studio.git
+cd yuying_arm_studio
 pip install -r requirements.txt
 ```
 

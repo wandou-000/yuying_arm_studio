@@ -50,6 +50,8 @@ Browser frontend (three.js + URDF)          Python backend (server.py)
 - The robot-side firmware speaking the `$ARM,...*XX` UART protocol (see [Protocol](#protocol))
 
 ```bash
+git clone https://github.com/wandou-000/yuying_arm_studio.git
+cd yuying_arm_studio
 pip install -r requirements.txt
 ```
 
